@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { nativeToUi } from '@blockworks-foundation/mango-client/lib/utils'
 import { groupBy } from '../utils'
 import useTradeHistory from '../hooks/useTradeHistory'
@@ -7,6 +7,7 @@ import FloatingElement from './FloatingElement'
 import Tooltip from './Tooltip'
 import Button from './Button'
 import AlertsModal from './AlertsModal'
+import ProgressBar from './ProgressBar'
 
 const calculatePNL = (tradeHistory, prices, mangoGroup) => {
   if (!tradeHistory.length) return '0.00'
@@ -72,7 +73,12 @@ export default function MarginInfo() {
         }[]
       | null
     >(null)
+  const [healthBar, setHealthBar] = useState(0)
   const [openAlertModal, setOpenAlertModal] = useState(false)
+
+  useEffect(() => {
+    
+  })
 
   useEffect(() => {
     if (selectedMangoGroup) {
@@ -99,6 +105,21 @@ export default function MarginInfo() {
                   1)
               ).toFixed(2)
             : '0'
+
+          console.log('maint coll')
+          console.log(selectedMangoGroup.maintCollRatio)
+          console.log('assets val')
+          console.log(selectedMarginAccount.getAssetsVal(selectedMangoGroup, prices))
+          console.log('liabs val')
+          console.log(selectedMarginAccount.getLiabsVal(selectedMangoGroup, prices))
+
+          const maxBorrow = selectedMarginAccount.getAssetsVal(selectedMangoGroup, prices) / selectedMangoGroup.maintCollRatio
+          const couldBorrow = Math.max(0, maxBorrow - selectedMarginAccount.getLiabsVal(selectedMangoGroup, prices))
+
+          console.log('health %')
+          console.log(couldBorrow / maxBorrow)
+          setHealthBar(100 * (couldBorrow / maxBorrow))
+
         } else {
           leverage = '0'
         }
@@ -173,6 +194,10 @@ export default function MarginInfo() {
               </div>
             ))
           : null}
+          <div className={`flex justify-center`}>
+            {/* change color (red -> green based on health?) */}
+            <ProgressBar bgcolor={"#ef6c00"} completed={healthBar} />
+          </div>
         <Button
           className="mt-4 w-full"
           disabled={!connected}
