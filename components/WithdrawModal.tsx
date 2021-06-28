@@ -356,7 +356,7 @@ const WithdrawModal = ({ isOpen, onClose }) => {
                 />
                 <div className="flex items-center jusitfy-between text-th-fgd-1 mt-4 p-2 rounded-md bg-th-bkg-3">
                   <div className="flex items-center text-fgd-1 pr-4">
-                    <span>Borrow Funds</span>
+                    <span>Borrow Funds ok</span>
                     <Tooltip content="Interest is charged on your borrowed balance and is subject to change.">
                       <InformationCircleIcon
                         className={`h-5 w-5 ml-2 text-th-fgd-3 cursor-help`}
