@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { nativeToUi } from '@blockworks-foundation/mango-client/lib/utils'
 import { groupBy } from '../utils'
 import useTradeHistory from '../hooks/useTradeHistory'
@@ -7,6 +7,7 @@ import FloatingElement from './FloatingElement'
 import Tooltip from './Tooltip'
 import Button from './Button'
 import AlertsModal from './AlertsModal'
+import LiquidationCalculatorModal from './LiquidationCalculatorModal'
 
 const calculatePNL = (tradeHistory, prices, mangoGroup) => {
   if (!tradeHistory.length) return '0.00'
@@ -72,6 +73,7 @@ export default function MarginInfo() {
     | null
   >(null)
   const [openAlertModal, setOpenAlertModal] = useState(false)
+  const [openLiquidationCalculatorModal, setOpenLiquidationCalculatorModal] = useState(false)
 
   useEffect(() => {
     if (selectedMangoGroup) {
@@ -172,19 +174,32 @@ export default function MarginInfo() {
               </div>
             ))
           : null}
-        <Button
-          className="mt-4 w-full"
-          disabled={!connected}
-          onClick={() => setOpenAlertModal(true)}
-        >
-          Create Liquidation Alert
-        </Button>
-        {openAlertModal ? (
+        
+        <div className={`flex justify-center items-center mt-4`}>
+          <Button
+            className="w-1/2"
+            disabled={!connected}
+            onClick={() => setOpenAlertModal(true)}
+          >
+            Create Liquidation Alert
+          </Button>
+          <Button
+            className="ml-4 w-1/2"
+            disabled={!connected}
+            onClick={() => setOpenLiquidationCalculatorModal(true)}
+          >
+            Liquidation Calculator
+          </Button>
+        </div>
+        {openAlertModal && (
           <AlertsModal
             isOpen={openAlertModal}
             onClose={() => setOpenAlertModal(false)}
             marginAccount={selectedMarginAccount}
           />
+        )}
+        {openLiquidationCalculatorModal ? (
+        <LiquidationCalculatorModal isOpen={openLiquidationCalculatorModal} onClose={() => setOpenLiquidationCalculatorModal(false)} />
         ) : null}
       </>
     </FloatingElement>
