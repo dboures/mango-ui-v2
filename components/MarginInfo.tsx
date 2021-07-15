@@ -7,20 +7,22 @@ import FloatingElement from './FloatingElement'
 import Tooltip from './Tooltip'
 import Button from './Button'
 import AlertsModal from './AlertsModal'
+import useMarketList from '../hooks/useMarketList'
+
+
+const assetIndex = {
+  'BTC/USDC': 0,
+  'ETH/USDC': 1,
+  'SOL/USDC': 2,
+  'SRM/USDC': 3,
+  USDC: 4,
+}
 
 const calculatePNL = (tradeHistory, prices, mangoGroup) => {
   if (!tradeHistory.length) return '0.00'
   const profitAndLoss = {}
   const groupedTrades = groupBy(tradeHistory, (trade) => trade.marketName)
   if (!prices.length) return '-'
-
-  const assetIndex = {
-    'BTC/USDC': 0,
-    'ETH/USDC': 1,
-    'SOL/USDC': 2,
-    'SRM/USDC': 3,
-    USDC: 4,
-  }
 
   groupedTrades.forEach((val, key) => {
     profitAndLoss[key] = val.reduce(
@@ -59,6 +61,8 @@ export default function MarginInfo() {
     (s) => s.selectedMarginAccount.current
   )
   const selectedMangoGroup = useMangoStore((s) => s.selectedMangoGroup.current)
+  const selectedMarketName = useMangoStore((s) => s.selectedMarket.name)
+  const { symbols } = useMarketList()
   const tradeHistory = useTradeHistory()
   const tradeHistoryLength = useMemo(() => tradeHistory.length, [tradeHistory])
   const [mAccountInfo, setMAccountInfo] = useState<
@@ -74,7 +78,7 @@ export default function MarginInfo() {
   const [openAlertModal, setOpenAlertModal] = useState(false)
 
   useEffect(() => {
-    if (selectedMangoGroup) {
+    if (selectedMangoGroup && selectedMarketName) { // shoudl this limit it really?
       selectedMangoGroup.getPrices(connection).then((prices) => {
         const accountEquity = selectedMarginAccount
           ? selectedMarginAccount.computeValue(selectedMangoGroup, prices)
@@ -91,6 +95,50 @@ export default function MarginInfo() {
         const leverage = accountEquity
           ? (1 / (collateralRatio - 1)).toFixed(2)
           : '0'
+
+        const assetNames = Object.keys(symbols)
+        const selectedAssetIndex = assetIndex[selectedMarketName]
+        const selectedAssetDeposit = selectedMarginAccount?.getUiDeposit(selectedMangoGroup, selectedAssetIndex)
+        const selectedAssetBorrow = selectedMarginAccount?.getUiBorrow(selectedMangoGroup, selectedAssetIndex)
+        const selectedAssetPrice = prices[selectedAssetIndex]
+
+        console.log(prices)
+
+        let liquidationPrice: number;
+        // Is this a good way to determine if position is long or short?
+        if (selectedAssetDeposit > selectedAssetBorrow) { // we are long the selected asset. As such, Liabilities are fixed, and assets are affected by price changes
+          const fixedAssetsVal = assetsVal - (selectedAssetDeposit * selectedAssetPrice)
+          console.log('fixed assets val')
+          console.log(fixedAssetsVal)
+          liquidationPrice = Math.max((1.1 * liabsVal) - fixedAssetsVal, 0) / selectedAssetDeposit // why does this one break but the other does not?
+
+          // console.log(assetsVal)
+          // console.log(liabsVal)
+          // console.log(selectedAssetDeposit)
+          // console.log(selectedAssetPrice)
+          // console.log(fixedAssetsVal)
+
+        } else { // we are short the selected asset. As such, Assets are fixed, and Liabilites are affected by price changes
+          const fixedLiabsVal = liabsVal - (selectedAssetBorrow * selectedAssetPrice)
+
+          console.log('liabs val')
+          console.log(liabsVal)
+          console.log('selectedAssetBorrow')
+          console.log(selectedAssetBorrow)
+          console.log('fixed liabs val')
+          console.log(fixedLiabsVal)
+
+          console.log('assets val')
+          console.log(assetsVal)
+
+          // console.log(assetsVal)
+          //console.log(fixedAssetsVal)
+          // console.log(fixedLiabsVal)
+          // console.log(selectedAssetBorrow)
+          // console.log(selectedAssetPrice)
+          //liquidationPrice = ((10 * assetsVal) - (11 * fixedLiabsVal)) / selectedAssetBorrow 
+          liquidationPrice = ((assetsVal / 1.1) - fixedLiabsVal) / selectedAssetBorrow // this acutally seems ok
+        }
 
         setMAccountInfo([
           {
@@ -137,6 +185,19 @@ export default function MarginInfo() {
             unit: '%',
             currency: '',
             desc: 'Keep your collateral ratio above 110% to avoid liquidation and above 120% to open new margin positions',
+          },
+          {
+            label: 'Estimated Liquidation Price',
+            value:
+              isFinite(liquidationPrice) ? 
+              liquidationPrice.toFixed(2)
+              : 'N/A',
+            unit: '',
+            currency:
+              isFinite(liquidationPrice) ? 
+              '$'
+              : '',
+            desc: `Estimated ${assetNames[selectedAssetIndex]} price that will cause liquidation. Calculated with the assumption that all other asset prices are constant`,
           },
         ])
       })

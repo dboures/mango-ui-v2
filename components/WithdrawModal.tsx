@@ -5,12 +5,12 @@ import { ElementTitle } from './styles'
 import useMangoStore from '../stores/useMangoStore'
 import useMarketList from '../hooks/useMarketList'
 import {
-  DECIMALS,
   floorToDecimal,
   tokenPrecision,
   displayDepositsForMarginAccount,
   DECIMALS,
   trimDecimals,
+  getSymbolForTokenMintAddress,
 } from '../utils/index'
 import useConnection from '../hooks/useConnection'
 import { borrowAndWithdraw, withdraw } from '../utils/mango'
@@ -33,6 +33,7 @@ import { Disclosure } from '@headlessui/react'
 import { PublicKey } from '@solana/web3.js'
 import { MarginAccount, uiToNative } from '@blockworks-foundation/mango-client'
 import Select from './Select'
+import AccountSelect from './AccountSelect'
 
 interface WithdrawModalProps {
   onClose: () => void
@@ -64,6 +65,8 @@ const WithdrawModal: FunctionComponent<WithdrawModalProps> = ({
   const selectedMarginAccount = useMangoStore(
     (s) => s.selectedMarginAccount.current
   )
+
+  const walletAccounts = useMangoStore((s) => s.wallet.balances)
   const actions = useMangoStore((s) => s.actions)
   const withdrawAccounts = useMemo(
     () =>

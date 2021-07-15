@@ -114,7 +114,7 @@ export function useBalances(): Balances[] {
           mangoGroup.mintDecimals[quoteCurrencyIndex]
         ),
         unsettled: nativeToUi(
-          nativeQuoteUnsettled,
+          nativeQuoteFree,
           mangoGroup.mintDecimals[quoteCurrencyIndex]
         ),
         net: net(nativeQuoteLocked, quoteCurrencyIndex),
