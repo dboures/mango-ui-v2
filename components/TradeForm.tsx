@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { ExclamationCircleIcon } from '@heroicons/react/outline'
 import styled from '@emotion/styled'
 import useMarket from '../hooks/useMarket'
 import useIpAddress from '../hooks/useIpAddress'
 import useConnection from '../hooks/useConnection'
+import useMarketList from '../hooks/useMarketList'
 import { PublicKey } from '@solana/web3.js'
 import { IDS } from '@blockworks-foundation/mango-client'
 import { notify } from '../utils/notifications'
@@ -35,25 +36,27 @@ export default function TradeForm() {
     (s) => s.selectedMarginAccount.current
   )
   const selectedMangoGroup = useMangoStore((s) => s.selectedMangoGroup.current)
-  const prices = useMangoStore((s) => s.selectedMangoGroup.prices) // this one feels a bit wrong
-
-  const collateralRatio = selectedMarginAccount?.getCollateralRatio(
-    selectedMangoGroup,
-    prices
-  ) 
+  const prices = useMangoStore((s) => s.selectedMangoGroup.prices)
+  const { getTokenIndex, symbols } = useMarketList()
+  const currentTokenIndex = useMemo(
+    () => getTokenIndex(symbols[baseCurrency]),
+    [baseCurrency]
+  )
   const { ipAllowed } = useIpAddress()
   const [invalidInputMessage, setInvalidInputMessage] = useState('')
+  const [leverageNotification, setLeverageNotification] = useState('')
   const [postOnly, setPostOnly] = useState(false)
   const [ioc, setIoc] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [maxButtonTransition, setMaxButtonTransition] = useState(false)
-  // const [numericLeverage, setNumericLeverage] = useState(1 / Math.max(0, collateralRatio - 1))
-
-  const numericLeverage = 1 / Math.max(0, collateralRatio - 1)
-  const [leveragePct, setLeveragePct] = useState((numericLeverage / 5) * 100)
-
+  const [thisAssetDeposit, setThisAssetDeposit] = useState(0)
+  const [usdcDeposit, setUsdcDeposit] = useState(0)
+  const [liabsVal, setLiabsVal] = useState(0)
+  const [accountEquity, setAccountEquity] = useState(0)
+  const [leveragePct, setLeveragePct] = useState(0)
   const orderBookRef = useRef(useMangoStore.getState().selectedMarket.orderBook)
   const orderbook = orderBookRef.current[0]
+
   useEffect(
     () =>
       useMangoStore.subscribe(
@@ -62,6 +65,31 @@ export default function TradeForm() {
       ),
     []
   )
+
+  useEffect(() => {
+    if (connected) {
+      const TAD = selectedMarginAccount?.getUiDeposit(
+        selectedMangoGroup,
+        currentTokenIndex
+      )
+      setThisAssetDeposit(TAD)
+      const USDCD = selectedMarginAccount?.getUiDeposit(
+        selectedMangoGroup,
+        getTokenIndex(symbols['USDC'])
+      )
+      setUsdcDeposit(USDCD)
+    }
+    setLeveragePct(0)
+  }, [selectedMarginAccount, selectedMangoGroup, connected, currentTokenIndex])
+
+  useEffect(() => {
+    if (connected) {
+      const LV = selectedMarginAccount?.getLiabsVal(selectedMangoGroup, prices)
+      setLiabsVal(LV)
+      const AE = selectedMarginAccount?.computeValue(selectedMangoGroup, prices)
+      setAccountEquity(AE)
+    }
+  }, [selectedMarginAccount, selectedMangoGroup, prices, connected])
 
   useEffect(() => {
     setBaseSize('')
@@ -90,23 +118,20 @@ export default function TradeForm() {
     }
   }, [price, tradeType])
 
-
   useEffect(() => {
-      //duplicate code
-    const collateralRatio = selectedMarginAccount?.getCollateralRatio(
-      selectedMangoGroup,
-      prices
-    )
-    const numericLeverage = 1 / Math.max(0, collateralRatio - 1)
-    const updatedLeveragePct = (numericLeverage / 5) * 100
+    if (leveragePct) {
+      const newQuoteSize = leverageQuoteCalc(leveragePct)
+      onSetQuoteSize(newQuoteSize)
+    } else {
+      onSetPrice(price)
+    }
+  }, [leveragePct, side])
 
-    setLeveragePct(updatedLeveragePct)
-  }, [selectedMarginAccount])
-
-  const setSide = (side) =>
+  const setSide = (side) => {
     set((s) => {
       s.tradeForm.side = side
     })
+  }
 
   const setBaseSize = (baseSize) =>
     set((s) => {
@@ -140,50 +165,28 @@ export default function TradeForm() {
       s.tradeForm.tradeType = type
     })
 
-  const onChangeSlider = async (leveragePct) => {
-    //need to transition the leverage pct into an actual value
-    //will depend on market or limit order as well, let's do market for now
-
-    const numericLeverage = (leveragePct / 100 ) * 5
-    const impliedCollateralRatio = (1/ numericLeverage) + 1 // says infinity math.min(100, x)??
-
-    const assetsVal = selectedMarginAccount?.getAssetsVal(selectedMangoGroup, prices)
-    const liabsVal = selectedMarginAccount?.getLiabsVal(selectedMangoGroup, prices)
-
-    let setLeverage = false;
-
-    if (side == 'buy' && tradeType === 'Market') { //lvg goes up if we are opening a borrow, down if we are covering a short -> how do i determine between these 2?
-
-      const newQuoteSize = Math.max((assetsVal - (impliedCollateralRatio * liabsVal))/ (impliedCollateralRatio - 1),0) // this makes sense if the leverage is goin up only
-      if (newQuoteSize > 0) {
-        setLeverage = true;
-      }
-      setQuoteSize(floorToDecimal(newQuoteSize, sizeDecimalCount))
-      onSetQuoteSize(newQuoteSize)
-
+  const leverageQuoteCalc = (leveragePct) => {
+    //get limit price or use markprice
+    const usePrice = Number(price) || markPrice
+    //calc current & available margin
+    const maxMarginUSD = accountEquity * 5
+    const availableMargin = maxMarginUSD - liabsVal
+    // calc trade value as percent of available margin
+    let maxTradeVal
+    if (side == 'sell') {
+      maxTradeVal = availableMargin + thisAssetDeposit * usePrice
+    } else {
+      maxTradeVal = availableMargin + usdcDeposit
     }
-
-    if (side == 'sell' && tradeType === 'Market') { //lvg goes down if we are covering a borrow, up if we are opening a short
-      //therefore 
-
-      const newQuoteSize = Math.min((assetsVal - (impliedCollateralRatio * liabsVal))/ (impliedCollateralRatio - 1),0) // this makes sense if the leverage is goin down only
-      if (newQuoteSize < 0) {
-        setLeverage = true;
-      }
-      setQuoteSize(floorToDecimal(-1 * newQuoteSize, sizeDecimalCount))
-      onSetQuoteSize(-1 * newQuoteSize)
-
-      
+    const newQuoteSize = (maxTradeVal * leveragePct) / 100
+    if (newQuoteSize < 0) {
+      setLeverageNotification(
+        `You have exceeded 5x leverage. Please reduce account leverage before ${side}ing`
+      )
+    } else {
+      setLeverageNotification('')
     }
-
-    if (setLeverage) {
-      setLeveragePct(leveragePct)
-    }
-
-
-    //if we are borrowing something, ou  
-
-
+    return newQuoteSize > 0 ? floorToDecimal(newQuoteSize, 2) : 0
   }
 
   const markPriceRef = useRef(useMangoStore.getState().selectedMarket.markPrice)
@@ -224,6 +227,7 @@ export default function TradeForm() {
     const rawQuoteSize = baseSize * usePrice
     const quoteSize = baseSize && floorToDecimal(rawQuoteSize, sizeDecimalCount)
     setQuoteSize(quoteSize)
+    debugger
   }
 
   const onSetQuoteSize = (quoteSize: number | '') => {
@@ -241,6 +245,7 @@ export default function TradeForm() {
     const rawBaseSize = quoteSize / usePrice
     const baseSize = quoteSize && floorToDecimal(rawBaseSize, sizeDecimalCount)
     setBaseSize(baseSize)
+    debugger
   }
 
   const postOnChange = (checked) => {
@@ -254,6 +259,10 @@ export default function TradeForm() {
       setPostOnly(false)
     }
     setIoc(checked)
+  }
+
+  const onChangeSlider = (leveragePct) => {
+    setLeveragePct(leveragePct)
   }
 
   async function onSubmit() {
@@ -441,20 +450,22 @@ export default function TradeForm() {
                 IOC
               </Switch>
             </div>
-            <div className="ml-4 self-right">
-              Leverage Here maybe?
-            </div>
           </div>
         ) : null}
       </div>
-      <div>
+      <div className={'pt-4'}>
         <LeverageSlider
-              value={leveragePct}
-              onChange={(v) => onChangeSlider(v)}
-              step={1}
-              maxButtonTransition={maxButtonTransition}
-            />
+          value={leveragePct}
+          onChange={(v) => onChangeSlider(v)}
+          step={1}
+          maxButtonTransition={maxButtonTransition}
+        />
       </div>
+      {leverageNotification ? (
+        <div className={`flex items-left pt-2 pt-1.5 text-th-primary`}>
+          {leverageNotification}
+        </div>
+      ) : null}
       <div className={`flex pt-6`}>
         {ipAllowed ? (
           connected ? (
